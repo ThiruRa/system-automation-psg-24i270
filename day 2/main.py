@@ -1,145 +1,314 @@
 
+import os
 import pandas as pd
 import joblib
 
-from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import (
-    accuracy_score,
-    classification_report,
-    confusion_matrix
-)
+from sklearn.metrics import accuracy_score, classification_report
 
-# 1. Load dataset
-print("=" * 60)
-print("MACHINE CONDITION PREDICTION - MODEL TRAINING")
-print("=" * 60)
 
-df = pd.read_csv("machine_sensor_dataset.csv")
+# ==========================================
+# CONFIGURATION
+# ==========================================
 
-# 2. Clean column names
-df.columns = df.columns.str.strip().str.lower()
+CSV_FILE = "day1_sensor_data.csv"
+MODEL_FILE = "machine_condition_model.pkl"
 
-# 3. Remove unnecessary ID column
-if "id" in df.columns:
-    df = df.drop(columns=["id"])
-
-# 4. Check required columns
-required_columns = [
+FEATURES = [
     "temperature",
     "pressure",
     "vibration",
-    "current",
-    "rpm",
-    "state"
+    "current"
 ]
 
+TARGET = "action"
+
+
+# ==========================================
+# 1. LOGICAL RULE-BASED DECISION
+# ==========================================
+
+def logical_check(row):
+    temp = float(row["temperature"])
+    pressure = float(row["pressure"])
+    vibration = float(row["vibration"])
+    current = float(row["current"])
+
+    # Rule 1: Critical machine failure
+    if temp > 80 and vibration > 3.5:
+        return "EMERGENCY_STOP"
+
+    # Rule 2: Overheating and high pressure
+    elif temp > 80 and pressure > 4:
+        return "EMERGENCY_STOP"
+
+    # Rule 3: Motor overload
+    elif current > 13 and vibration > 3.5:
+        return "REDUCE_LOAD"
+
+    # Rule 4: Extremely high temperature
+    elif temp > 90:
+        return "EMERGENCY_STOP"
+
+    # Rule 5: High vibration
+    elif vibration > 4:
+        return "STOP_MACHINE"
+
+    # Rule 6: High current
+    elif current > 13:
+        return "REDUCE_LOAD"
+
+    # Rule 7: High temperature
+    elif temp > 80:
+        return "COOL_MACHINE"
+
+    # Rule 8: High pressure
+    elif pressure > 4:
+        return "CHECK_PRESSURE"
+
+    # No abnormal condition detected by these rules
+    else:
+        return "CONTINUE_NORMAL"
+
+
+# ==========================================
+# 2. EXPLAIN THE LOGICAL DECISION
+# ==========================================
+
+def explain_reading(row):
+    temp = float(row["temperature"])
+    pressure = float(row["pressure"])
+    vibration = float(row["vibration"])
+    current = float(row["current"])
+
+    if temp > 80 and vibration > 3.5:
+        return "High temperature and high vibration detected."
+
+    elif temp > 80 and pressure > 4:
+        return "High temperature and high pressure detected."
+
+    elif current > 13 and vibration > 3.5:
+        return "High current and high vibration indicate possible motor overload."
+
+    elif temp > 90:
+        return "Extremely high temperature detected."
+
+    elif vibration > 4:
+        return "Excessive vibration detected."
+
+    elif current > 13:
+        return "Current exceeds the configured threshold."
+
+    elif temp > 80:
+        return "High temperature detected; cooling is required."
+
+    elif pressure > 4:
+        return "Pressure exceeds the configured threshold."
+
+    else:
+        return "No abnormal condition detected by the configured rules."
+
+
+# ==========================================
+# 3. LOAD DAY 1 DATA
+# ==========================================
+
+print("\n========== DAY 2: SENSOR DATA ANALYSIS ==========")
+
+if not os.path.exists(CSV_FILE):
+    print("ERROR: Day 1 CSV file not found.")
+    print("Run history.py first.")
+    raise SystemExit(1)
+
+df = pd.read_csv(CSV_FILE)
+df.columns = df.columns.str.strip()
+
+required_columns = FEATURES + [TARGET]
+
 missing_columns = [
-    col for col in required_columns if col not in df.columns
+    column for column in required_columns
+    if column not in df.columns
 ]
 
 if missing_columns:
-    raise ValueError(
-        f"Missing columns: {missing_columns}\n"
-        f"Available columns: {list(df.columns)}"
-    )
+    print("ERROR: Missing columns:", missing_columns)
+    print("Available columns:", list(df.columns))
+    raise SystemExit(1)
 
-# 5. Clean data
-df = df.dropna(subset=required_columns)
+# Convert sensor values to numeric
+for column in FEATURES:
+    df[column] = pd.to_numeric(df[column], errors="coerce")
 
-feature_columns = [
-    "temperature",
-    "pressure",
-    "vibration",
-    "current",
-    "rpm"
-]
+df[TARGET] = df[TARGET].astype("string").str.strip()
 
-X = df[feature_columns]
-y = df["state"].astype(str).str.strip()
+# Remove invalid or missing rows
+df = df.dropna(subset=FEATURES + [TARGET]).copy()
+df = df[df[TARGET] != ""]
 
-print(f"\nTotal dataset records: {len(df)}")
-print("\nClass distribution:")
-print(y.value_counts())
+if len(df) < 5:
+    print("ERROR: Not enough valid sensor readings.")
+    print("Generate more data using history.py.")
+    raise SystemExit(1)
 
-# 6. Split dataset into training and testing
-X_train, X_test, y_train, y_test = train_test_split(
-    X,
-    y,
-    test_size=0.20,
-    random_state=42,
-    stratify=y
-)
+print("Total valid readings:", len(df))
 
-print(f"\nTraining records: {len(X_train)}")
-print(f"Testing records: {len(X_test)}")
 
-# 7. Create and train model
-model = RandomForestClassifier(
-    n_estimators=200,
-    random_state=42,
-    class_weight="balanced"
-)
+# ==========================================
+# 4. COMPARE DAY 1 ACTIONS WITH LOGIC
+# ==========================================
 
-print("\nTraining model...")
-model.fit(X_train, y_train)
+df["logical_action"] = df.apply(logical_check, axis=1)
+df["recorded_action"] = df[TARGET].astype(str)
 
-# 8. Predict test data
-y_pred = model.predict(X_test)
+matches = df["logical_action"] == df["recorded_action"]
 
-# 9. Calculate and display accuracy
-accuracy = accuracy_score(y_test, y_pred)
+print("\n========== RULE-BASED COMPARISON ==========")
 
-print("\n" + "=" * 60)
-print("MODEL EVALUATION RESULTS")
-print("=" * 60)
+print("Total readings:", len(df))
+print("Matching actions:", int(matches.sum()))
+print("Mismatched actions:", int((~matches).sum()))
 
-print(f"\nModel Accuracy: {accuracy * 100:.2f}%")
+agreement = matches.mean() * 100
+print(f"Logical agreement: {agreement:.2f}%")
 
-# 10. Classification report
-print("\nClassification Report:")
-print(
-    classification_report(
-        y_test,
-        y_pred,
-        zero_division=0
-    )
-)
+if (~matches).any():
+    print("\nFirst mismatched readings:")
 
-# 11. Confusion matrix
-print("\nConfusion Matrix:")
-print(confusion_matrix(y_test, y_pred))
-
-# 12. Cross-validation accuracy
-print("\nCalculating 5-Fold Cross-Validation Accuracy...")
-
-minimum_class_count = y.value_counts().min()
-cv_folds = min(5, int(minimum_class_count))
-
-if cv_folds >= 2:
-    cv_scores = cross_val_score(
-        model,
-        X,
-        y,
-        cv=cv_folds,
-        scoring="accuracy"
-    )
+    mismatch_columns = FEATURES + [
+        "recorded_action",
+        "logical_action"
+    ]
 
     print(
-        f"Cross-Validation Accuracy: "
-        f"{cv_scores.mean() * 100:.2f}%"
-    )
-    print(
-        f"Cross-Validation Standard Deviation: "
-        f"{cv_scores.std() * 100:.2f}%"
+        df.loc[~matches, mismatch_columns]
+        .head(10)
+        .to_string(index=False)
     )
 else:
-    print("Cross-validation skipped: insufficient samples per class.")
+    print("All recorded actions match the logical rules.")
 
-# 13. Save trained model
-joblib.dump(model, "machine_condition_model.pkl")
 
-print("\nModel saved as machine_condition_model.pkl")
-print("\nTraining completed successfully!")
-print("=" * 60)
+# ==========================================
+# 5. TRAIN MACHINE LEARNING MODEL
+# ==========================================
 
+print("\n========== MACHINE LEARNING TRAINING ==========")
+
+X = df[FEATURES]
+y = df["recorded_action"]
+
+model = None
+
+# Ensure there are enough samples of every action
+class_counts = y.value_counts()
+
+if y.nunique() < 2:
+    print("ML training skipped: only one action class exists.")
+
+elif class_counts.min() < 2:
+    print("ML training skipped: some actions have too few samples.")
+
+else:
+    # Split data into training and testing sets
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=0.20,
+        random_state=42,
+        stratify=y
+    )
+
+    # Create the model
+    model = RandomForestClassifier(
+        n_estimators=200,
+        random_state=42,
+        class_weight="balanced"
+    )
+
+    # Train using Day 1 recorded actions
+    model.fit(X_train, y_train)
+
+    # Evaluate on unseen test rows
+    predictions = model.predict(X_test)
+
+    accuracy = accuracy_score(y_test, predictions)
+
+    print("Training completed successfully.")
+    print(f"Test accuracy: {accuracy * 100:.2f}%")
+
+    print("\nClassification Report:")
+    print(
+        classification_report(
+            y_test,
+            predictions,
+            zero_division=0
+        )
+    )
+
+    # Save the trained model
+    joblib.dump(model, MODEL_FILE)
+
+    print("Model saved as:", MODEL_FILE)
+
+
+# ==========================================
+# 6. COMPARE RULE AND ML FOR LATEST READING
+# ==========================================
+
+latest = df.iloc[-1]
+latest_X = latest[FEATURES].to_frame().T
+
+rule_action = logical_check(latest)
+recorded_action = latest["recorded_action"]
+
+print("\n========== LATEST SENSOR READING ==========")
+
+print(f"Temperature: {latest['temperature']}")
+print(f"Pressure:    {latest['pressure']}")
+print(f"Vibration:   {latest['vibration']}")
+print(f"Current:     {latest['current']}")
+
+print("\n========== RULE vs ML COMPARISON ==========")
+
+print("Day 1 recorded action:", recorded_action)
+print("Rule-based action:    ", rule_action)
+
+ml_action = None
+
+if model is not None:
+    ml_action = model.predict(latest_X)[0]
+    print("ML predicted action:  ", ml_action)
+
+    if rule_action == ml_action:
+        print("Comparison: BOTH AGREE")
+    else:
+        print("Comparison: DIFFERENT PREDICTIONS")
+        print("Priority: RULE-BASED LOGIC")
+
+else:
+    print("ML prediction unavailable.")
+    print("Rule-based logic will still decide the final action.")
+
+
+# ==========================================
+# 7. FINAL DECISION: RULE HAS PRIORITY
+# ==========================================
+
+print("\n========== FINAL DECISION ==========")
+
+# IMPORTANT: ML never overrides the rule-based result.
+final_action = rule_action
+
+print("Final action:     ", final_action)
+print("Decision source:  RULE-BASED LOGIC")
+print("Reason:           ", explain_reading(latest))
+
+if ml_action is not None:
+    if ml_action != rule_action:
+        print("ML disagreed with the rule.")
+        print("The rule-based decision was followed.")
+    else:
+        print("ML agrees with the rule-based decision.")
+
+print("\n========== ANALYSIS COMPLETED ==========")

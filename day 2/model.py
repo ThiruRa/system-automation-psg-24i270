@@ -1,145 +1,211 @@
 
 import pandas as pd
-import joblib
-
-from sklearn.model_selection import (
-    train_test_split,
-    StratifiedKFold,
-    cross_val_score
-)
+from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import (
-    accuracy_score,
-    classification_report,
-    confusion_matrix
-)
+from sklearn.metrics import accuracy_score, classification_report
+import joblib
+import os
 
-# 1. Load automation CSV
-df = pd.read_csv("day1_sensor_data.csv")
+CSV_FILE = "day1_sensor_data.csv"
 
-df.columns = df.columns.str.strip().str.lower()
+# 1. Read Day 1 sensor data
+if not os.path.exists(CSV_FILE):
+    print("ERROR: Day 1 CSV file not found!")
+    print("Run history.py first.")
+    raise SystemExit(1)
 
-# 2. Select sensor features and target
-features = [
-    "temperature",
-    "pressure",
-    "vibration",
-    "current"
+df = pd.read_csv(CSV_FILE)
+df.columns = df.columns.str.strip()
+
+required = [
+    "temperature", "pressure", "vibration",
+    "current", "action"
 ]
 
-target = "action"
+if not all(col in df.columns for col in required):
+    print("ERROR: CSV is missing required columns.")
+    print("Available columns:", list(df.columns))
+    raise SystemExit(1)
 
-# 3. Validate required columns
-required = features + [target]
+df = df.dropna(subset=required).copy()
 
-missing = [col for col in required if col not in df.columns]
+if len(df) < 5:
+    print("Not enough sensor readings. Run Day 1 again.")
+    raise SystemExit(1)
 
-if missing:
-    raise ValueError(f"Missing columns in CSV: {missing}")
+# 2. Logical comparison using the same priority as Day 1
+def logical_check(row):
+    temp = float(row["temperature"])
+    pressure = float(row["pressure"])
+    vibration = float(row["vibration"])
+    current = float(row["current"])
 
-# 4. Clean data
-for col in features:
-    df[col] = pd.to_numeric(df[col], errors="coerce")
+    if temp > 80 and vibration > 3.5:
+        return "EMERGENCY_STOP"
 
-df[target] = df[target].astype("string").str.strip().str.upper()
+    elif temp > 80 and pressure > 4:
+        return "EMERGENCY_STOP"
 
-df = df.dropna(subset=required)
-df = df[df[target] != ""]
+    elif current > 13 and vibration > 3.5:
+        return "REDUCE_LOAD"
 
-X = df[features]
-y = df[target]
+    elif temp > 90:
+        return "EMERGENCY_STOP"
 
-print("=" * 50)
-print("MACHINE AUTOMATION - ML TRAINING")
-print("=" * 50)
+    elif vibration > 4:
+        return "STOP_MACHINE"
 
-print("\nTotal records:", len(df))
-print("\nRecords per action:")
-print(y.value_counts())
+    elif current > 13:
+        return "REDUCE_LOAD"
 
-# 5. Check whether stratified evaluation is possible
-class_counts = y.value_counts()
+    elif temp > 80:
+        return "COOL_MACHINE"
 
-if len(class_counts) < 2:
-    raise ValueError(
-        "At least two different action classes are required."
+    elif pressure > 4:
+        return "CHECK_PRESSURE"
+
+    else:
+        return "CONTINUE_NORMAL"
+
+
+def explain_reading(row, action):
+    temp = float(row["temperature"])
+    pressure = float(row["pressure"])
+    vibration = float(row["vibration"])
+    current = float(row["current"])
+
+    if temp > 80 and vibration > 3.5:
+        return "High temperature + high vibration: critical machine risk."
+
+    elif temp > 80 and pressure > 4:
+        return "High temperature + high pressure: emergency risk."
+
+    elif current > 13 and vibration > 3.5:
+        return "High current + high vibration: possible motor overload."
+
+    elif temp > 90:
+        return "Temperature is extremely high."
+
+    elif vibration > 4:
+        return "Excessive vibration detected."
+
+    elif current > 13:
+        return "Current is above the safe threshold."
+
+    elif temp > 80:
+        return "High temperature detected; cooling is required."
+
+    elif pressure > 4:
+        return "Pressure is above the set threshold."
+
+    else:
+        return "All readings are within the configured rule thresholds."
+
+
+# 3. Compare the logical result with Day 1's action
+df["logical_action"] = df.apply(logical_check, axis=1)
+df["recorded_action"] = df["action"].astype(str).str.strip()
+
+matches = df["logical_action"] == df["recorded_action"]
+print("\n========== DAY 1 vs LOGICAL CHECK ==========")
+print("Total readings:", len(df))
+print("Matching actions:", int(matches.sum()))
+print("Mismatched actions:", int((~matches).sum()))
+
+if len(df) > 0:
+    print("Logical agreement: {:.2f}%".format(matches.mean() * 100))
+
+if (~matches).any():
+    print("\nFirst mismatched readings:")
+    print(
+        df.loc[~matches, [
+            "temperature", "pressure", "vibration",
+            "current", "recorded_action", "logical_action"
+        ]].head(10).to_string(index=False)
     )
 
-if class_counts.min() < 2:
-    raise ValueError(
-        "A class has fewer than 2 records. Run the automation "
-        "more times to collect more examples."
+# 4. Train ML model to predict the recorded action
+features = ["temperature", "pressure", "vibration", "current"]
+X = df[features].astype(float)
+y = df["recorded_action"]
+
+model = None
+
+if y.nunique() >= 2 and y.value_counts().min() >= 2:
+    # Stratification keeps examples of each action in both sets
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y,
+        test_size=0.2,
+        random_state=42,
+        stratify=y
     )
 
-# Use a test set while ensuring each class has enough examples
-n_classes = y.nunique()
-test_count = max(round(len(df) * 0.20), n_classes)
-train_count = len(df) - test_count
-
-if train_count < n_classes:
-    raise ValueError(
-        "Not enough records for a stratified train/test split. "
-        "Collect more sensor readings first."
+    model = RandomForestClassifier(
+        n_estimators=200,
+        random_state=42,
+        class_weight="balanced"
     )
 
-X_train, X_test, y_train, y_test = train_test_split(
-    X,
-    y,
-    test_size=test_count,
-    random_state=42,
-    stratify=y
-)
+    model.fit(X_train, y_train)
+    test_predictions = model.predict(X_test)
 
-# 6. Train Random Forest
-model = RandomForestClassifier(
-    n_estimators=200,
-    random_state=42,
-    class_weight="balanced"
-)
+    print("\n========== MACHINE LEARNING RESULTS ==========")
+    print("Test accuracy: {:.2f}%".format(
+        accuracy_score(y_test, test_predictions) * 100
+    ))
+    print("\nClassification report:")
+    print(classification_report(
+        y_test,
+        test_predictions,
+        zero_division=0
+    ))
 
-model.fit(X_train, y_train)
+    joblib.dump(model, "machine_condition_model.pkl")
+    print("Model saved: machine_condition_model.pkl")
 
-# 7. Test accuracy
-y_pred = model.predict(X_test)
-
-print("\n========== TEST RESULTS ==========")
-print(f"Test accuracy: {accuracy_score(y_test, y_pred) * 100:.2f}%")
-
-print("\nClassification report:")
-print(classification_report(y_test, y_pred, zero_division=0))
-
-print("Confusion matrix (rows = actual, columns = predicted):")
-print(confusion_matrix(y_test, y_pred, labels=model.classes_))
-print("Class order:", list(model.classes_))
-
-# 8. Cross-validation on training data
-minimum_class_count = y_train.value_counts().min()
-n_splits = min(5, int(minimum_class_count))
-
-if n_splits >= 2:
-    cv = StratifiedKFold(
-        n_splits=n_splits,
-        shuffle=True,
-        random_state=42
-    )
-
-    scores = cross_val_score(
-        model,
-        X_train,
-        y_train,
-        cv=cv,
-        scoring="accuracy"
-    )
-
-    print("\n========== CROSS-VALIDATION ==========")
-    print("Fold accuracies (%):", (scores * 100).round(2))
-    print(f"Mean CV accuracy: {scores.mean() * 100:.2f}%")
-    print(f"CV standard deviation: {scores.std() * 100:.2f}%")
 else:
-    print("\nCross-validation skipped: not enough examples per class.")
+    print("\nNot enough examples per action to evaluate ML reliably.")
+    print("Run Day 1 again to generate more varied readings.")
 
-# 9. Save trained model
-joblib.dump(model, "machine_condition_model.pkl")
+# 5. Compare the latest sensor reading
+latest = df.iloc[-1]
+latest_X = latest[features].to_frame().T.astype(float)
 
-print("\nSaved: machine_condition_model.pkl")
-print("Training completed!")
+logical_action = logical_check(latest)
+recorded_action = str(latest["recorded_action"])
+
+print("\n========== LATEST SENSOR READING ==========")
+print(f"Temperature : {latest['temperature']}")
+print(f"Pressure    : {latest['pressure']}")
+print(f"Vibration   : {latest['vibration']}")
+print(f"Current     : {latest['current']}")
+
+print("\n========== LOGICAL ANALYSIS ==========")
+print("Reason:", explain_reading(latest, logical_action))
+print("Rule-based action:", logical_action)
+print("Day 1 recorded action:", recorded_action)
+
+if logical_action == recorded_action:
+    print("Comparison: MATCH")
+else:
+    print("Comparison: MISMATCH - check Day 1 and Day 2 rules.")
+
+if model is not None:
+    ml_action = model.predict(latest_X)[0]
+    print("ML predicted action:", ml_action)
+
+    if ml_action == logical_action:
+        print("ML vs Logic: MATCH")
+    else:
+        print("ML vs Logic: MISMATCH")
+
+    if ml_action == recorded_action:
+        print("ML vs Day 1: MATCH")
+    else:
+        print("ML vs Day 1: MISMATCH")
+else:
+    print("ML prediction unavailable; insufficient action classes.")
+
+print("\n========== FINAL DECISION ==========")
+print("Recommended action:", logical_action)
+print("Reason:", explain_reading(latest, logical_action))
