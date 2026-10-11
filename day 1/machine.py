@@ -1,26 +1,19 @@
+
 import time
 import random
+import os
+import psycopg
 
 LOG_FILE = "day1_log.txt"
 
-
-# ---------------------------------------------------------------------------
-# STEP 1 & STEP 6 — Generate simulated sensor data
-# ---------------------------------------------------------------------------
-
-def generate_sensor_data():
-    """Return simulated sensor readings."""
-    return {
-        "temperature": random.randint(50, 95),
-        "pressure": round(random.uniform(1.0, 5.0), 2),
-        "vibration": round(random.uniform(0.1, 5.0), 2),
-        "current": round(random.uniform(5.0, 15.0), 2)
-    }
-
-
-# ---------------------------------------------------------------------------
-# MACHINE LIST
-# ---------------------------------------------------------------------------
+# PostgreSQL connection settings
+DB_CONFIG = {
+    "host": "localhost",
+    "port": 5432,
+    "dbname": "postgres",
+    "user": "postgres",
+    "password": os.environ.get("PGPASSWORD", "p")
+}
 
 MACHINES = [
     "CNC Machine",
@@ -30,11 +23,6 @@ MACHINES = [
     "Industrial Pump"
 ]
 
-
-# ---------------------------------------------------------------------------
-# STEP 2, STEP 7 & STEP 8 — Automation rules
-# ---------------------------------------------------------------------------
-
 RULES = [
     {
         "name": "EMERGENCY_HIGH_TEMP",
@@ -42,28 +30,24 @@ RULES = [
         "condition": lambda r: r["temperature"] > 90,
         "action": "EMERGENCY_STOP"
     },
-
     {
         "name": "HIGH_VIBRATION",
         "priority": 2,
         "condition": lambda r: r["vibration"] > 4.0,
         "action": "STOP_MACHINE"
     },
-
     {
         "name": "HIGH_CURRENT",
         "priority": 3,
         "condition": lambda r: r["current"] > 13,
         "action": "REDUCE_LOAD"
     },
-
     {
         "name": "HIGH_TEMPERATURE",
         "priority": 4,
         "condition": lambda r: r["temperature"] > 80,
         "action": "COOL_MACHINE"
     },
-
     {
         "name": "HIGH_PRESSURE",
         "priority": 5,
@@ -72,33 +56,37 @@ RULES = [
     }
 ]
 
+RISK_SCORES = {
+    "EMERGENCY_HIGH_TEMP": 100,
+    "HIGH_VIBRATION": 80,
+    "HIGH_CURRENT": 60,
+    "HIGH_TEMPERATURE": 50,
+    "HIGH_PRESSURE": 40,
+    "NO_RULE_FIRED": 0
+}
 
-# ---------------------------------------------------------------------------
-# STEP 3 — Detect machine state from the rules
-# ---------------------------------------------------------------------------
+
+def generate_sensor_data():
+    """Generate simulated sensor readings."""
+    return {
+        "temperature": random.randint(50, 95),
+        "pressure": round(random.uniform(1.0, 5.0), 2),
+        "vibration": round(random.uniform(0.1, 5.0), 2),
+        "current": round(random.uniform(5.0, 15.0), 2)
+    }
+
 
 def evaluate_rules(reading, rules):
-    """
-    Return (rule_name, action) for the first matching rule.
-    Rules are checked in priority order.
-    """
-
-    sorted_rules = sorted(rules, key=lambda r: r["priority"])
-
-    for rule in sorted_rules:
+    """Return the first matching rule and action."""
+    for rule in sorted(rules, key=lambda r: r["priority"]):
         if rule["condition"](reading):
             return rule["name"], rule["action"]
 
     return "NO_RULE_FIRED", "CONTINUE_NORMAL"
 
 
-# ---------------------------------------------------------------------------
-# STEP 4 — Trigger an action when a rule fires
-# ---------------------------------------------------------------------------
-
 def take_action(action):
-    """Return a human-readable message for the action."""
-
+    """Describe the simulated action."""
     actions = {
         "EMERGENCY_STOP": "Emergency stop activated!",
         "STOP_MACHINE": "Machine stopped due to unsafe condition.",
@@ -107,17 +95,19 @@ def take_action(action):
         "CHECK_PRESSURE": "Pressure is high. Inspection required.",
         "CONTINUE_NORMAL": "Machine operating normally."
     }
-
     return actions.get(action, f"No handler for action: {action}")
 
 
-# ---------------------------------------------------------------------------
-# STEP 5 — Log every decision made
-# ---------------------------------------------------------------------------
+def calculate_risk(rule_name):
+    return RISK_SCORES.get(rule_name, 0)
+
+
+def find_priority_machine(machine_data):
+    return max(machine_data, key=lambda x: x["risk"])
+
 
 def log_decision(machine, reading, rule_name, action):
-    """Append one line to the log file."""
-
+    """Append the decision to the existing text log."""
     with open(LOG_FILE, "a", encoding="utf-8") as file:
         file.write(
             f"Machine: {machine} | "
@@ -127,135 +117,141 @@ def log_decision(machine, reading, rule_name, action):
         )
 
 
-# ---------------------------------------------------------------------------
-# NOVELTY — Calculate risk score for each machine
-# ---------------------------------------------------------------------------
+def save_to_database(conn, tick, item):
+    """Save one machine decision to PostgreSQL."""
+    rule_priority = next(
+        (
+            rule["priority"]
+            for rule in RULES
+            if rule["name"] == item["rule"]
+        ),
+        None
+    )
 
-def calculate_risk(rule_name):
-    """Assign a risk score based on the detected condition."""
+    reading = item["reading"]
 
-    risk_scores = {
-        "EMERGENCY_HIGH_TEMP": 100,
-        "HIGH_VIBRATION": 80,
-        "HIGH_CURRENT": 60,
-        "HIGH_TEMPERATURE": 50,
-        "HIGH_PRESSURE": 40,
-        "NO_RULE_FIRED": 0
-    }
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO machine_automation_logs (
+                tick_number,
+                machine_name,
+                temperature,
+                pressure,
+                vibration,
+                current_value,
+                rule_name,
+                rule_priority,
+                action,
+                outcome,
+                risk_score
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                tick,
+                item["machine"],
+                reading["temperature"],
+                reading["pressure"],
+                reading["vibration"],
+                reading["current"],
+                item["rule"],
+                rule_priority,
+                item["action"],
+                item["outcome"],
+                item["risk"]
+            )
+        )
 
-    return risk_scores.get(rule_name, 0)
-
-
-# ---------------------------------------------------------------------------
-# NOVELTY — Find machine requiring immediate attention
-# ---------------------------------------------------------------------------
-
-def find_priority_machine(machine_data):
-    """Return the machine with the highest risk."""
-
-    return max(machine_data, key=lambda x: x["risk"])
-
-
-# ---------------------------------------------------------------------------
-# MAIN PROGRAM
-# ---------------------------------------------------------------------------
 
 def main():
+    if DB_CONFIG["password"] == "YOUR_POSTGRES_PASSWORD":
+        raise ValueError(
+            "Set your PostgreSQL password in the PGPASSWORD "
+            "environment variable or update DB_CONFIG."
+        )
 
-    for tick in range(1, 11):
+    saved_count = 0
 
-        machine_data = []
+    # Keep the database connection open during all 10 ticks.
+    with psycopg.connect(**DB_CONFIG) as conn:
+        print("Connected to PostgreSQL successfully!")
 
-        print("\n" + "=" * 75)
-        print(f"FACTORY MONITORING - TICK {tick:02d}")
-        print("=" * 75)
+        for tick in range(1, 11):
+            machine_data = []
 
-        # Check all 5 machines
-        for machine in MACHINES:
+            print("\n" + "=" * 75)
+            print(f"FACTORY MONITORING - TICK {tick:02d}")
+            print("=" * 75)
 
-            reading = generate_sensor_data()
+            for machine in MACHINES:
+                reading = generate_sensor_data()
+                rule_name, action = evaluate_rules(reading, RULES)
+                outcome = take_action(action)
+                risk = calculate_risk(rule_name)
 
-            rule_name, action = evaluate_rules(reading, RULES)
+                item = {
+                    "machine": machine,
+                    "reading": reading,
+                    "rule": rule_name,
+                    "action": action,
+                    "outcome": outcome,
+                    "risk": risk
+                }
 
-            outcome = take_action(action)
+                machine_data.append(item)
 
-            risk = calculate_risk(rule_name)
+                print(f"\nMachine : {machine}")
+                print(f"SENSE   : {reading}")
+                print(f"THINK   : {rule_name}")
+                print(f"RISK    : {risk}/100")
+                print(f"ACT     : {outcome}")
 
-            machine_data.append({
-                "machine": machine,
-                "reading": reading,
-                "rule": rule_name,
-                "action": action,
-                "risk": risk
-            })
+                # Save to the existing text file.
+                log_decision(machine, reading, rule_name, action)
 
-            print(f"\nMachine : {machine}")
-            print(f"SENSE   : {reading}")
-            print(f"THINK   : {rule_name}")
-            print(f"RISK    : {risk}/100")
-            print(f"ACT     : {outcome}")
+                # Save the same decision to PostgreSQL.
+                save_to_database(conn, tick, item)
+                saved_count += 1
 
-            log_decision(
-                machine,
-                reading,
-                rule_name,
-                action
-            )
+            # Commit this tick's five database records.
+            conn.commit()
+            print("\nDatabase: 5 machine records saved.")
 
-        # ---------------------------------------------------------------
-        # Find the machine requiring immediate attention
-        # ---------------------------------------------------------------
+            priority_machine = find_priority_machine(machine_data)
 
-        priority_machine = find_priority_machine(machine_data)
+            print("\n" + "-" * 75)
+            print("FACTORY PRIORITY ANALYSIS")
+            print("-" * 75)
 
-        print("\n" + "-" * 75)
-        print("FACTORY PRIORITY ANALYSIS")
-        print("-" * 75)
+            if priority_machine["risk"] >= 80:
+                print("!!! IMMEDIATE ACTION REQUIRED !!!")
+                print(f"Machine : {priority_machine['machine']}")
+                print(f"Risk    : {priority_machine['risk']}/100")
+                print(f"Problem : {priority_machine['rule']}")
+                print(f"Action  : {priority_machine['action']}")
 
-        if priority_machine["risk"] >= 80:
+            elif priority_machine["risk"] > 0:
+                print("ATTENTION REQUIRED")
+                print(f"Machine : {priority_machine['machine']}")
+                print(f"Risk    : {priority_machine['risk']}/100")
 
-            print(
-                f"!!! IMMEDIATE ACTION REQUIRED !!!"
-            )
+            else:
+                print("All machines are operating normally.")
 
-            print(
-                f"Machine : {priority_machine['machine']}"
-            )
+            time.sleep(0.5)
 
-            print(
-                f"Risk    : {priority_machine['risk']}/100"
-            )
-
-            print(
-                f"Problem : {priority_machine['rule']}"
-            )
-
-            print(
-                f"Action  : {priority_machine['action']}"
-            )
-
-        elif priority_machine["risk"] > 0:
-
-            print(
-                f"ATTENTION REQUIRED"
-            )
-
-            print(
-                f"Machine : {priority_machine['machine']}"
-            )
-
-            print(
-                f"Risk    : {priority_machine['risk']}/100"
-            )
-
-        else:
-
-            print("All machines are operating normally.")
-
-        time.sleep(0.5)
+    print("\n" + "=" * 75)
+    print("SIMULATION COMPLETED")
+    print(f"Total machine records saved: {saved_count}")
+    print("PostgreSQL: Records committed successfully.")
+    print(f"Text log: {LOG_FILE}")
+    print("=" * 75)
 
 
 if __name__ == "__main__":
-    main()
-
-
+    try:
+        main()
+    except Exception as error:
+        print("\nPROGRAM ERROR:", error)
+        print("Check your database settings and table creation.")

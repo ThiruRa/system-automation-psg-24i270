@@ -1,0 +1,11 @@
+tick,temperature,pressure,vibration,current,rule,action,outcome,recovery
+1,71,1.93,2.24,10.97,NO_RULE_FIRED,CONTINUE_NORMAL,Machine operating normally.,NO_RECOVERY_NEEDED
+2,95,2.16,1.32,10.15,EMERGENCY_HIGH_TEMP,EMERGENCY_STOP,Emergency stop activated!,MACHINE_STILL_UNSAFE - Keep machine stopped
+3,82,4.12,2.42,10.93,OVERHEATING_PRESSURE_RISK,EMERGENCY_STOP,Emergency stop activated!,MACHINE_STILL_UNSAFE - Keep machine stopped
+4,66,2.93,2.4,6.24,NO_RULE_FIRED,CONTINUE_NORMAL,Machine operating normally.,NO_RECOVERY_NEEDED
+5,50,1.09,0.47,5.44,NO_RULE_FIRED,CONTINUE_NORMAL,Machine operating normally.,NO_RECOVERY_NEEDED
+6,94,3.55,3.29,7.54,EMERGENCY_HIGH_TEMP,EMERGENCY_STOP,Emergency stop activated!,MACHINE_STILL_UNSAFE - Keep machine stopped
+7,82,4.79,2.54,13.76,OVERHEATING_PRESSURE_RISK,EMERGENCY_STOP,Emergency stop activated!,MACHINE_STILL_UNSAFE - Keep machine stopped
+8,54,4.08,1.32,8.97,HIGH_PRESSURE,CHECK_PRESSURE,Pressure is high. Inspection required.,NO_RECOVERY_NEEDED
+9,63,1.92,2.64,13.05,HIGH_CURRENT,REDUCE_LOAD,Machine load reduced.,NO_RECOVERY_NEEDED
+10,85,1.94,4.74,10.89,CRITICAL_MACHINE_FAILURE,EMERGENCY_STOP,Emergency stop activated!,MACHINE_STILL_UNSAFE - Keep machine stopped
