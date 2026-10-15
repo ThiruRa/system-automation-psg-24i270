@@ -1,0 +1,61 @@
+ROBOTIC ARM JOINT HEALTH MONITORING SYSTEM — BONUS CHALLENGE
+23IF02 · System Automation
+
+1. Safety thresholds
+The demo uses illustrative immediate-stop thresholds of torque >= 95 Nm,
+temperature >= 90 C, and vibration >= 4.5 g. These values are selected to
+demonstrate deterministic threshold checks, not because they are certified
+safe values for any real robot. Actual limits must be obtained from the robot
+manufacturer, engineering risk assessment, sensor calibration, and validated
+operating conditions. The safety check runs before the ML result is considered.
+If a threshold is crossed, the outcome is EMERGENCY_STOP even if the model
+predicts low wear or is unavailable.
+
+2. Historical dataset and ML prediction
+generate_dataset.py creates 300 synthetic labeled readings. Each row contains
+torque, temperature, vibration, and a binary wear label (0 = healthy, 1 = wear
+or fault history). A Random Forest classifier learns patterns from these
+features. A holdout accuracy is printed, but it is only a basic check on
+synthetic data and must not be treated as real-world performance evidence.
+Real deployment would require representative, time-separated historical data,
+careful validation, calibration, monitoring for drift, and human engineering
+review.
+
+3. Combining the model and maintenance log
+The system extracts log lines for each arm and scans for wear-related terms.
+An emergency threshold takes first priority. A clear mismatch between the
+primary torque sensor and an independent reference also leads to a conservative
+EMERGENCY_STOP in this demo. Otherwise, high predicted wear plus a relevant
+maintenance note leads to SCHEDULE_MAINTENANCE; a sufficiently high model
+risk alone can also schedule maintenance. A maintenance warning or moderate
+risk leads to MONITOR. If none of those conditions apply, the arm is SAFE.
+The arm's final result is the highest-priority result among its evaluated
+joints: EMERGENCY_STOP > SCHEDULE_MAINTENANCE > MONITOR > SAFE.
+
+4. Spoofed-sensor defense
+The demo compares the primary torque value with an independent reference torque.
+If their absolute difference exceeds 20 Nm, the reading is marked suspicious
+and the arm is stopped for investigation. The maintenance log can also identify
+notes that say a sensor appears stuck. This can catch a simple torque-value
+spoof when the independent reference is trustworthy and differs significantly.
+It cannot reliably detect a coordinated attack that manipulates both channels,
+a plausible low-amplitude spoof, compromised reference data, all sensor types,
+or a sophisticated attacker who also alters logs. A real design should use
+independent trusted hardware, authentication, freshness/sequence checks,
+physical plausibility and rate-of-change tests, secure logs, alarms, and a
+safety-rated controller. Software checks alone cannot guarantee authenticity.
+
+5. Four possible decisions
+SAFE: all measured values are below emergency limits, no discrepancy is found,
+and no meaningful wear signal is present.
+MONITOR: a moderate model risk or a non-emergency warning needs observation.
+SCHEDULE_MAINTENANCE: the model predicts high wear and/or the combined signals
+justify planned maintenance.
+EMERGENCY_STOP: an immediate safety limit is crossed or the independent sensor
+cross-check detects a significant discrepancy.
+
+Important limitation
+This project is an educational simulation with synthetic data and hard-coded
+example readings. Do not connect it directly to a real robot or use it as the
+only safety mechanism. Industrial robot safety requires validated limits,
+fail-safe hardware, formal risk assessment, and qualified engineering review.

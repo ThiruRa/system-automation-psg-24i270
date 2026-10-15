@@ -1,0 +1,74 @@
+=================================================================
+ROBOTIC ARM JOINT HEALTH MONITORING SYSTEM
+=================================================================
+Historical readings      : 300
+Synthetic test accuracy : 0.987
+Safety rules independent of ML: YES
+-----------------------------------------------------------------
+
+ARM-01 | Joint: shoulder
+  ML wear probability : 0.00
+  Maintenance warning : False
+  Sensor-note warning : False
+  Spoof detected      : False
+  FINAL DECISION      : SAFE
+  Reason              : No emergency or significant warning detected
+  Log                 : 2026-10-15 08:05 ARM-01 shoulder: routine inspection, no unusual sound.
+  Log                 : 2026-10-15 09:35 ARM-01 wrist: production line paused for routine cleaning.
+
+ARM-02 | Joint: elbow
+  ML wear probability : 1.00
+  Maintenance warning : True
+  Sensor-note warning : True
+  Spoof detected      : False
+  FINAL DECISION      : SCHEDULE_MAINTENANCE
+  Reason              : High predicted wear plus maintenance warning
+  Log                 : 2026-10-15 08:12 ARM-02 elbow: vibration is increasing; inspect bearing soon.
+  Log                 : 2026-10-15 09:03 ARM-02 shoulder: torque sensor reading looks stuck; verify sensor.
+
+ARM-03 | Joint: elbow
+  ML wear probability : 1.00
+  Maintenance warning : True
+  Sensor-note warning : False
+  Spoof detected      : False
+  FINAL DECISION      : EMERGENCY_STOP
+  Reason              : Safety threshold crossed: temperature_c=94 (threshold=90.0)
+  Log                 : 2026-10-15 08:20 ARM-03 wrist: joint feels hot after repeated cycles.
+  Log                 : 2026-10-15 09:25 ARM-03 elbow: repeated overheating warning during operation.
+
+ARM-04 | Joint: wrist
+  ML wear probability : 0.03
+  Maintenance warning : False
+  Sensor-note warning : False
+  Spoof detected      : False
+  FINAL DECISION      : SAFE
+  Reason              : No emergency or significant warning detected
+  Log                 : 2026-10-15 08:28 ARM-04 shoulder: technician cleaned the external cover.
+  Log                 : 2026-10-15 09:15 ARM-04 wrist: maintenance scheduled for next month.
+
+ARM-05 | Joint: elbow
+  ML wear probability : 0.28
+  Maintenance warning : True
+  Sensor-note warning : False
+  Spoof detected      : True
+  FINAL DECISION      : EMERGENCY_STOP
+  Reason              : Possible sensor spoof/anomaly: Primary/reference torque mismatch: 33.0 Nm
+  Log                 : 2026-10-15 08:40 ARM-05 elbow: unusual grinding noise and possible bearing wear.
+
+ARM-06 | Joint: wrist
+  ML wear probability : 0.01
+  Maintenance warning : True
+  Sensor-note warning : False
+  Spoof detected      : False
+  FINAL DECISION      : MONITOR
+  Reason              : Potential developing issue requires observation
+  Log                 : 2026-10-15 08:51 ARM-06 wrist: slight vibration increase noticed; recheck during next inspection.
+
+=================================================================
+DECISION COVERAGE
+=================================================================
+SAFE                     : REACHED
+MONITOR                  : REACHED
+SCHEDULE_MAINTENANCE     : REACHED
+EMERGENCY_STOP           : REACHED
+=================================================================
